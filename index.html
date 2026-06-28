@@ -1,0 +1,1043 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LLM Systems Field Manual · Six Production Patterns on Google Cloud</title>
+<meta name="description" content="A build-along reference for shipping six LLM application patterns on the Gemini Enterprise Agent Platform (Vertex AI): hybrid RAG, agent orchestration, semantic caching, eval generation, LoRA fine-tuning, and guarded text-to-SQL." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    /* chrome — kept monochromatic and disciplined */
+    --bg:#0c111c;
+    --bg-2:#0f1524;
+    --panel:#141b2c;
+    --panel-2:#182032;
+    --line:#26304a;
+    --line-soft:#1c2438;
+    --ink:#e9edf6;
+    --ink-2:#aeb8cf;
+    --ink-3:#76819c;
+    --ink-4:#525d77;
+
+    /* the signature: six signal channels, one per pattern */
+    --c1:#4ad2e0;  /* RAG        — cyan   */
+    --c2:#9d8cff;  /* Agents     — violet */
+    --c3:#f3b558;  /* LLMOps     — amber  */
+    --c4:#5fd28c;  /* Evals      — green  */
+    --c5:#ff7b95;  /* Fine-tune  — coral  */
+    --c6:#f2705e;  /* Guardrails — ember  */
+
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:'Space Grotesk',system-ui,sans-serif;
+    --body:'Inter',system-ui,sans-serif;
+
+    --maxw:1180px;
+    --rail:118px;
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--body);font-size:16px;line-height:1.65;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(900px 500px at 82% -8%, rgba(74,210,224,.07), transparent 60%),
+      radial-gradient(760px 480px at 0% 18%, rgba(157,140,255,.06), transparent 55%);
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:rgba(74,210,224,.28);color:#fff}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 26px}
+  .mono{font-family:var(--mono)}
+  .eyebrow{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.26em;
+    text-transform:uppercase;color:var(--ink-3);font-weight:500;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:60;
+    backdrop-filter:blur(10px);
+    background:linear-gradient(180deg, rgba(12,17,28,.92), rgba(12,17,28,.72));
+    border-bottom:1px solid var(--line-soft);
+  }
+  .topbar-in{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:13px;letter-spacing:.04em}
+  .brand .dot{width:9px;height:9px;border-radius:50%;
+    background:conic-gradient(var(--c1),var(--c2),var(--c3),var(--c4),var(--c5),var(--c6),var(--c1));
+    box-shadow:0 0 0 3px rgba(74,210,224,.10)}
+  .brand b{color:var(--ink);font-weight:600}
+  .brand span{color:var(--ink-3)}
+  .topnav{display:flex;gap:4px}
+  .topnav a{
+    font-family:var(--mono);font-size:12px;color:var(--ink-3);
+    padding:7px 10px;border-radius:7px;letter-spacing:.02em;transition:.18s color,.18s background;
+  }
+  .topnav a:hover{color:var(--ink);background:var(--panel)}
+  @media(max-width:860px){.topnav{display:none}}
+
+  /* ---------- hero ---------- */
+  .hero{position:relative;padding:88px 0 64px;border-bottom:1px solid var(--line-soft);overflow:hidden}
+  .hero .kick{display:flex;align-items:center;gap:14px;margin-bottom:26px}
+  .hero .kick .rule{height:1px;flex:1;background:linear-gradient(90deg,var(--line),transparent)}
+  .h1{
+    font-family:var(--disp);font-weight:600;letter-spacing:-.025em;
+    font-size:clamp(38px,6.4vw,76px);line-height:.98;margin:0 0 10px;
+  }
+  .h1 .glow{
+    background:linear-gradient(96deg,var(--c1),var(--c2) 38%,var(--c5) 72%,var(--c3));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero-lede{max-width:660px;color:var(--ink-2);font-size:18px;margin:18px 0 0}
+  .hero-lede b{color:var(--ink);font-weight:600}
+  .hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+  .btn{
+    font-family:var(--mono);font-size:13px;letter-spacing:.02em;
+    padding:12px 18px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);transition:.18s transform,.18s border-color,.18s background;
+  }
+  .btn:hover{transform:translateY(-2px);border-color:#36436a;background:var(--panel-2)}
+  .btn.solid{background:linear-gradient(180deg,#1b2942,#152134);border-color:#33507a}
+  .btn .arr{color:var(--c1)}
+
+  /* signal bus animation under hero */
+  .bus{margin-top:54px;border:1px solid var(--line-soft);border-radius:14px;background:
+    linear-gradient(180deg,var(--bg-2),rgba(15,21,36,.4));padding:18px 20px;position:relative;overflow:hidden}
+  .bus-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .bus-head .lbl{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.16em;text-transform:uppercase}
+  .bus-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  .bus-cell{position:relative;padding:13px 12px;border-radius:10px;background:var(--panel);
+    border:1px solid var(--line-soft);overflow:hidden}
+  .bus-cell .num{font-family:var(--mono);font-size:11px;color:var(--ink-4)}
+  .bus-cell .nm{font-family:var(--disp);font-weight:500;font-size:14.5px;margin-top:5px;letter-spacing:-.01em}
+  .bus-cell .ln{height:3px;border-radius:3px;margin-top:11px;background:var(--line);position:relative;overflow:hidden}
+  .bus-cell .ln::after{content:"";position:absolute;inset:0;width:38%;border-radius:3px;
+    background:var(--cc);transform:translateX(-120%);animation:sweep 3.4s var(--d) cubic-bezier(.4,0,.2,1) infinite}
+  @keyframes sweep{0%{transform:translateX(-120%)}45%{transform:translateX(280%)}100%{transform:translateX(280%)}}
+  @media(prefers-reduced-motion:reduce){.bus-cell .ln::after{animation:none;transform:none;width:100%;opacity:.5}}
+  @media(max-width:760px){.bus-grid{grid-template-columns:repeat(2,1fr)}}
+
+  /* ---------- generic section ---------- */
+  .section{padding:74px 0;border-bottom:1px solid var(--line-soft)}
+  .sec-head{margin-bottom:40px;max-width:760px}
+  .sec-head h2{font-family:var(--disp);font-weight:600;letter-spacing:-.02em;
+    font-size:clamp(26px,3.6vw,38px);margin:14px 0 12px;line-height:1.05}
+  .sec-head p{color:var(--ink-2);margin:0;font-size:16.5px}
+
+  /* foundations */
+  .found-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
+  @media(max-width:880px){.found-grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;padding:22px 24px}
+  .card h3{font-family:var(--disp);font-weight:600;font-size:18px;margin:0 0 12px;letter-spacing:-.01em}
+  .steplist{list-style:none;margin:0;padding:0;counter-reset:s}
+  .steplist li{position:relative;padding:9px 0 9px 38px;border-top:1px dashed var(--line-soft);color:var(--ink-2);font-size:14.5px}
+  .steplist li:first-child{border-top:0}
+  .steplist li::before{counter-increment:s;content:counter(s,decimal-leading-zero);
+    position:absolute;left:0;top:9px;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .steplist code{font-family:var(--mono);font-size:12.5px;color:var(--c1);background:rgba(74,210,224,.07);
+    padding:1px 6px;border-radius:5px;border:1px solid rgba(74,210,224,.14)}
+
+  table.models{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.models th,table.models td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line-soft)}
+  table.models th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+  table.models td:first-child{font-family:var(--mono);color:var(--ink);font-size:12.5px}
+  table.models td .tag{color:var(--ink-3)}
+
+  .callout{margin-top:22px;border:1px solid var(--line-soft);border-left:2px solid var(--c3);
+    background:linear-gradient(90deg,rgba(243,181,88,.05),transparent);border-radius:10px;padding:14px 18px;font-size:14px;color:var(--ink-2)}
+  .callout b{color:var(--ink)}
+
+  /* ---------- modules layout w/ left rail ---------- */
+  .modwrap{max-width:var(--maxw);margin:0 auto;padding:0 26px;display:grid;
+    grid-template-columns:var(--rail) 1fr;gap:30px;align-items:start}
+  @media(max-width:980px){.modwrap{grid-template-columns:1fr;gap:0}}
+
+  .rail{position:sticky;top:78px;align-self:start}
+  @media(max-width:980px){.rail{display:none}}
+  .rail .rlbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-4);margin-bottom:14px}
+  .rail a{display:flex;align-items:center;gap:9px;padding:8px 0;color:var(--ink-4);
+    font-family:var(--mono);font-size:12px;border-left:2px solid var(--line-soft);padding-left:12px;
+    transition:.18s color,.18s border-color}
+  .rail a .rdot{width:7px;height:7px;border-radius:50%;background:var(--line);transition:.18s background,.18s box-shadow}
+  .rail a.on{color:var(--ink)}
+  .rail a.on .rdot{background:var(--rc);box-shadow:0 0 0 3px color-mix(in srgb,var(--rc) 22%,transparent)}
+  .rail a.on{border-left-color:var(--rc)}
+  .rail a:hover{color:var(--ink-2)}
+
+  .modcol{min-width:0}
+
+  /* module = spec sheet */
+  .mod{padding:46px 0;border-top:1px solid var(--line-soft)}
+  .mod:first-child{border-top:0;padding-top:8px}
+  .mod-top{display:flex;align-items:flex-start;gap:16px;margin-bottom:8px}
+  .mod-code{font-family:var(--mono);font-size:12px;color:var(--ink-3);letter-spacing:.1em;white-space:nowrap;padding-top:6px}
+  .mod-code .pat{color:var(--mc)}
+  .mod h3{font-family:var(--disp);font-weight:600;font-size:clamp(24px,3.2vw,32px);letter-spacing:-.02em;margin:0;line-height:1.05}
+  .mod .thesis{color:var(--ink-2);font-size:16.5px;margin:10px 0 0;max-width:680px}
+  .mod .thesis b{color:var(--ink)}
+
+  .specrow{margin-top:26px}
+  .spec-k{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+    display:flex;align-items:center;gap:9px;margin-bottom:13px}
+  .spec-k::before{content:"";width:14px;height:2px;background:var(--mc);border-radius:2px}
+
+  .prose{color:var(--ink-2);font-size:15px}
+  .prose b{color:var(--ink);font-weight:600}
+  .prose p{margin:0 0 12px}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-family:var(--mono);font-size:12px;color:var(--ink-2);background:var(--panel);
+    border:1px solid var(--line-soft);border-radius:999px;padding:6px 12px}
+  .chip b{color:var(--mc);font-weight:500}
+
+  /* architecture flow */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;border:1px solid var(--line-soft);
+    border-radius:12px;overflow:hidden;background:var(--bg-2)}
+  .node{flex:1 1 140px;min-width:130px;padding:15px 14px;border-right:1px solid var(--line-soft);position:relative}
+  .node:last-child{border-right:0}
+  .node .s{font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+  .node .t{font-family:var(--disp);font-weight:500;font-size:14px;margin-top:6px;letter-spacing:-.01em}
+  .node .d{font-size:12.5px;color:var(--ink-3);margin-top:5px;line-height:1.45}
+  .node::after{content:"›";position:absolute;right:-8px;top:50%;transform:translateY(-50%);
+    color:var(--mc);font-size:16px;z-index:2;background:var(--bg-2);padding:0 1px}
+  .node:last-child::after{display:none}
+  @media(max-width:680px){.node{flex-basis:100%;border-right:0;border-bottom:1px solid var(--line-soft)}
+    .node:last-child{border-bottom:0}.node::after{content:"⌄";right:50%;top:auto;bottom:-9px;transform:translateX(50%)}}
+
+  /* build steps */
+  .build{list-style:none;margin:0;padding:0;counter-reset:b}
+  .build li{position:relative;padding:12px 0 12px 42px;border-top:1px solid var(--line-soft);color:var(--ink-2);font-size:14.5px}
+  .build li:first-child{border-top:0}
+  .build li::before{counter-increment:b;content:counter(b);position:absolute;left:0;top:11px;
+    width:24px;height:24px;border-radius:7px;background:var(--panel);border:1px solid var(--line);
+    color:var(--mc);font-family:var(--mono);font-size:12px;display:grid;place-items:center}
+  .build li b{color:var(--ink);font-weight:600}
+
+  /* code block */
+  .code{background:#0a0e18;border:1px solid var(--line-soft);border-radius:12px;overflow:hidden;margin-top:2px}
+  .code-bar{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line-soft);
+    background:var(--bg-2)}
+  .code-bar .fn{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+  .code-bar .lang{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--mc);letter-spacing:.14em;text-transform:uppercase}
+  pre{margin:0;padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12.6px;line-height:1.7;color:#cdd6ea}
+  pre .c{color:#5a667f;font-style:italic}
+  pre .k{color:var(--c2)}
+  pre .s{color:var(--c4)}
+  pre .f{color:var(--c1)}
+  pre .n{color:var(--c3)}
+
+  /* project brief */
+  .brief{border:1px solid var(--line-soft);border-radius:12px;overflow:hidden}
+  .brief-top{padding:16px 20px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border-bottom:1px solid var(--line-soft)}
+  .brief-top .bt-k{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mc)}
+  .brief-top .bt-t{font-family:var(--disp);font-weight:600;font-size:18px;margin-top:6px}
+  .brief-body{padding:6px 20px 18px}
+  .ac{list-style:none;margin:0;padding:0}
+  .ac li{position:relative;padding:9px 0 9px 26px;border-top:1px dashed var(--line-soft);font-size:14px;color:var(--ink-2)}
+  .ac li:first-child{border-top:0}
+  .ac li::before{content:"✓";position:absolute;left:0;top:9px;color:var(--mc);font-family:var(--mono);font-size:12px}
+
+  .repos{display:flex;flex-wrap:wrap;gap:10px;margin-top:2px}
+  .repo{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12.5px;
+    border:1px solid var(--line-soft);background:var(--panel);border-radius:10px;padding:10px 14px;color:var(--ink-2);
+    transition:.18s border-color,.18s transform}
+  .repo:hover{border-color:var(--mc);transform:translateY(-2px)}
+  .repo .gh{color:var(--mc)}
+  .repo b{color:var(--ink);font-weight:500}
+  .repo.starter{border-style:dashed}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  /* closing */
+  .use-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:820px){.use-grid{grid-template-columns:1fr}}
+  .use{background:var(--panel);border:1px solid var(--line-soft);border-radius:13px;padding:20px}
+  .use .n{font-family:var(--mono);font-size:11px;color:var(--ink-4)}
+  .use h4{font-family:var(--disp);font-weight:600;font-size:16px;margin:8px 0 8px}
+  .use p{margin:0;color:var(--ink-2);font-size:14px}
+  .use code{font-family:var(--mono);font-size:12px;color:var(--c1);background:rgba(74,210,224,.06);padding:2px 6px;border-radius:5px}
+
+  footer{padding:46px 0 70px}
+  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center;
+    border-top:1px solid var(--line-soft);padding-top:26px}
+  .foot .l{font-family:var(--mono);font-size:12px;color:var(--ink-4);max-width:560px;line-height:1.7}
+  .foot .l b{color:var(--ink-2);font-weight:500}
+</style>
+</head>
+<body>
+
+<!-- ===== top bar ===== -->
+<div class="topbar">
+  <div class="wrap topbar-in">
+    <div class="brand"><span class="dot"></span><b>LLM&nbsp;SYSTEMS</b><span>/ field manual</span></div>
+    <nav class="topnav">
+      <a href="#foundations">00 · setup</a>
+      <a href="#m1">01 · rag</a>
+      <a href="#m2">02 · agents</a>
+      <a href="#m3">03 · llmops</a>
+      <a href="#m4">04 · evals</a>
+      <a href="#m5">05 · tuning</a>
+      <a href="#m6">06 · guardrails</a>
+    </nav>
+  </div>
+</div>
+
+<!-- ===== hero ===== -->
+<header class="hero">
+  <div class="wrap">
+    <div class="kick"><span class="eyebrow">Build-along reference</span><span class="rule"></span><span class="eyebrow">Google Cloud · 2026</span></div>
+    <h1 class="h1">Six LLM patterns,<br /><span class="glow">one cloud, shipped.</span></h1>
+    <p class="hero-lede">A working engineer's manual for building production LLM systems on the <b>Gemini Enterprise Agent Platform</b> — the platform Google rebranded from Vertex AI at Cloud Next on April 22, 2026. Each pattern below comes with the GCP stack, the architecture, a build path, reference code, a project to ship, and a runnable starter you can push to your own repo.</p>
+    <div class="hero-cta">
+      <a class="btn solid" href="#foundations"><span class="arr">▸</span> Start with setup</a>
+      <a class="btn" href="#m1">Jump to the patterns</a>
+    </div>
+
+    <div class="bus">
+      <div class="bus-head"><span class="lbl">Signal bus · six channels</span><span class="lbl">retrieve → reason → operate</span></div>
+      <div class="bus-grid">
+        <a class="bus-cell" href="#m1" style="--cc:var(--c1);--d:0s"><div class="num">01</div><div class="nm">RAG</div><div class="ln"></div></a>
+        <a class="bus-cell" href="#m2" style="--cc:var(--c2);--d:.5s"><div class="num">02</div><div class="nm">Agents</div><div class="ln"></div></a>
+        <a class="bus-cell" href="#m3" style="--cc:var(--c3);--d:1s"><div class="num">03</div><div class="nm">LLMOps</div><div class="ln"></div></a>
+        <a class="bus-cell" href="#m4" style="--cc:var(--c4);--d:1.5s"><div class="num">04</div><div class="nm">Evals</div><div class="ln"></div></a>
+        <a class="bus-cell" href="#m5" style="--cc:var(--c5);--d:2s"><div class="num">05</div><div class="nm">Fine-tune</div><div class="ln"></div></a>
+        <a class="bus-cell" href="#m6" style="--cc:var(--c6);--d:2.5s"><div class="num">06</div><div class="nm">Guardrails</div><div class="ln"></div></a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== foundations ===== -->
+<section class="section" id="foundations">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Pattern 00 · before you build</span>
+      <h2>Set the platform up once, then reuse it everywhere</h2>
+      <p>Every project here runs against the same Google Cloud project, the same auth, and the same model family. Get this right once and the six patterns become variations on a theme rather than six setups.</p>
+    </div>
+
+    <div class="found-grid">
+      <div class="card">
+        <h3>Project &amp; auth bootstrap</h3>
+        <ol class="steplist">
+          <li>Create or pick a project and enable the platform API: <code>gcloud services enable aiplatform.googleapis.com</code></li>
+          <li>Authenticate with Application Default Credentials: <code>gcloud auth application-default login</code></li>
+          <li>Export the two env vars every SDK reads: <code>GOOGLE_CLOUD_PROJECT</code> and <code>GOOGLE_CLOUD_LOCATION</code> (e.g. <code>us-central1</code>)</li>
+          <li>Point the GenAI SDK at the platform backend: <code>GOOGLE_GENAI_USE_VERTEXAI=true</code></li>
+          <li>Install the two libraries the projects share: <code>pip install google-genai google-cloud-aiplatform</code></li>
+          <li>For data work add <code>google-cloud-bigquery</code> and <code>google-cloud-storage</code></li>
+        </ol>
+        <div class="callout"><b>Naming note.</b> Google renamed Vertex AI to the <b>Gemini Enterprise Agent Platform</b> in April 2026, but the SDKs, the <span class="mono">aiplatform</span> API, and most docs still say "Vertex AI." Treat the two names as the same thing throughout this manual.</div>
+      </div>
+
+      <div class="card">
+        <h3>The model shelf you'll pull from</h3>
+        <table class="models">
+          <thead><tr><th>Model</th><th>Use it for</th></tr></thead>
+          <tbody>
+            <tr><td>gemini-3.1-pro</td><td>Hardest reasoning, planning, judging <span class="tag">(autorater)</span></td></tr>
+            <tr><td>gemini-2.5-pro</td><td>Deep RAG answers, agent supervisors</td></tr>
+            <tr><td>gemini-2.5-flash</td><td>Default workhorse · 1M context · tool use</td></tr>
+            <tr><td>gemini-2.5-flash-lite</td><td>Cheap/fast classifiers, routers, cache fallback</td></tr>
+            <tr><td>gemma-4</td><td>Open weights you can LoRA &amp; self-host</td></tr>
+            <tr><td>text-embedding-005</td><td>Dense embeddings for search &amp; caching</td></tr>
+            <tr><td>semantic-ranker-fast-004</td><td>Low-latency reranking (Ranking API)</td></tr>
+          </tbody>
+        </table>
+        <div class="callout" style="border-left-color:var(--c1);background:linear-gradient(90deg,rgba(74,210,224,.05),transparent)"><b>One client, many models.</b> The <span class="mono">google-genai</span> SDK with <span class="mono">vertexai=True</span> talks to all of these. Swap the model string and the rest of your code is unchanged — which is exactly why benchmarking (pattern 04) and tuning (pattern 05) are cheap to wire in later.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== modules ===== -->
+<div class="modwrap">
+  <!-- left signal rail -->
+  <aside class="rail" aria-label="Pattern navigation">
+    <div class="rlbl">Patterns</div>
+    <a href="#m1" data-rail="m1" style="--rc:var(--c1)"><span class="rdot"></span>01 RAG</a>
+    <a href="#m2" data-rail="m2" style="--rc:var(--c2)"><span class="rdot"></span>02 Agents</a>
+    <a href="#m3" data-rail="m3" style="--rc:var(--c3)"><span class="rdot"></span>03 LLMOps</a>
+    <a href="#m4" data-rail="m4" style="--rc:var(--c4)"><span class="rdot"></span>04 Evals</a>
+    <a href="#m5" data-rail="m5" style="--rc:var(--c5)"><span class="rdot"></span>05 Tuning</a>
+    <a href="#m6" data-rail="m6" style="--rc:var(--c6)"><span class="rdot"></span>06 Guards</a>
+  </aside>
+
+  <div class="modcol">
+
+    <!-- ============ MODULE 1 — RAG ============ -->
+    <section class="mod" id="m1" data-mod="m1" style="--mc:var(--c1)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">01</span></div>
+        <div>
+          <h3>Hybrid RAG with reranking &amp; citations</h3>
+          <p class="thesis">Answer questions from internal docs by combining <b>keyword precision</b> with <b>semantic recall</b>, sharpening the result set with a reranker, and forcing the model to <b>cite the source of every claim</b>.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>Pure semantic search misses exact tokens — product codes, error strings, acronyms. Pure keyword search misses meaning — "car repair" never matches "automobile maintenance." <b>Hybrid search</b> runs both: a dense vector for meaning and a sparse vector for keywords, then fuses the two ranked lists with Reciprocal Rank Fusion (an <b>alpha</b> dial trades keyword vs. semantic weight).</p>
+          <p>Fusion gets you a good top-50. A <b>cross-encoder reranker</b> then reads the query against each candidate and reorders for true relevance — this is the single biggest quality lever in most RAG systems. Finally, you keep document IDs flowing through the whole pipeline so the answer can carry <b>inline citations</b> back to the exact chunk, which is what makes the system trustworthy.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>Vertex AI Vector Search</b> · dense+sparse index (ScaNN)</span>
+          <span class="chip"><b>text-embedding-005</b> · dense</span>
+          <span class="chip"><b>Ranking API</b> · semantic-ranker-fast-004</span>
+          <span class="chip"><b>Gemini 2.5 Pro</b> · grounded generation</span>
+          <span class="chip">Cloud Storage · doc source</span>
+          <span class="chip">RAG Engine · managed alt.</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">INGEST</div><div class="t">Chunk + embed</div><div class="d">Split docs, make dense &amp; sparse vectors, keep doc_id + offsets</div></div>
+          <div class="node"><div class="s">INDEX</div><div class="t">Vector Search</div><div class="d">Upsert datapoints with both vectors into one hybrid index</div></div>
+          <div class="node"><div class="s">RETRIEVE</div><div class="t">Hybrid + RRF</div><div class="d">Query both, fuse with alpha → top-50 candidates</div></div>
+          <div class="node"><div class="s">RERANK</div><div class="t">Ranking API</div><div class="d">Score query×chunk, keep top-8 by relevance</div></div>
+          <div class="node"><div class="s">ANSWER</div><div class="t">Gemini + cites</div><div class="d">Numbered context → answer with [n] → map back to source</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Chunk thoughtfully.</b> 300–600 token chunks with ~15% overlap; store <span class="mono">doc_id</span>, <span class="mono">title</span>, <span class="mono">url</span>, and character offsets as metadata.</li>
+          <li><b>Make both vectors.</b> Dense from <span class="mono">text-embedding-005</span>; sparse from a TF-IDF/SPLADE-style encoder. Write a JSONL of datapoints carrying <span class="mono">embedding</span> + <span class="mono">sparse_embedding</span>.</li>
+          <li><b>Stand up the index.</b> Create a Vector Search index + endpoint, deploy, and upsert. (Vector Search 2.0 Collections store vectors, metadata, and content together.)</li>
+          <li><b>Retrieve hybrid.</b> Embed the query both ways, query the index, fuse the two rankings with RRF and a tunable <span class="mono">alpha</span>.</li>
+          <li><b>Rerank.</b> Send query + candidate texts to the Ranking API; keep the top-k by model score.</li>
+          <li><b>Generate with citations.</b> Number the surviving chunks, instruct Gemini to cite <span class="mono">[n]</span> after every claim, then resolve <span class="mono">[n]</span> → title/url for the UI.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · retrieve → rerank → cite</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">rag/pipeline.py</span><span class="lang">python</span></div>
+<pre><span class="c"># hybrid retrieve, rerank with the Ranking API, then ground Gemini with citations</span>
+<span class="k">from</span> google <span class="k">import</span> genai
+<span class="k">from</span> google.genai <span class="k">import</span> types
+<span class="k">from</span> google.cloud <span class="k">import</span> discoveryengine_v1 <span class="k">as</span> de
+
+client = genai.<span class="f">Client</span>(vertexai=<span class="k">True</span>, location=<span class="s">"us-central1"</span>)
+
+<span class="k">def</span> <span class="f">answer</span>(query, chunks):           <span class="c"># chunks = top-50 from hybrid search</span>
+    ranked = <span class="f">rerank</span>(query, chunks)[:<span class="n">8</span>]
+    context = <span class="s">"\n\n"</span>.<span class="f">join</span>(<span class="s">f"[{i+1}] {c.text}"</span> <span class="k">for</span> i, c <span class="k">in</span> <span class="f">enumerate</span>(ranked))
+    prompt = (<span class="s">"Answer using ONLY the context. After every claim cite [n]. "</span>
+              <span class="s">f"If unsupported, say so.\n\nCONTEXT:\n{context}\n\nQ: {query}"</span>)
+    resp = client.models.<span class="f">generate_content</span>(
+        model=<span class="s">"gemini-2.5-pro"</span>, contents=prompt,
+        config=types.<span class="f">GenerateContentConfig</span>(temperature=<span class="n">0.1</span>))
+    sources = [{<span class="s">"n"</span>: i+<span class="n">1</span>, <span class="s">"title"</span>: c.title, <span class="s">"url"</span>: c.url}
+               <span class="k">for</span> i, c <span class="k">in</span> <span class="f">enumerate</span>(ranked)]
+    <span class="k">return</span> resp.text, sources    <span class="c"># UI renders [n] → clickable source</span>
+
+<span class="k">def</span> <span class="f">rerank</span>(query, chunks):
+    rank = de.<span class="f">RankServiceClient</span>()
+    records = [de.<span class="f">RankingRecord</span>(id=<span class="f">str</span>(i), content=c.text)
+               <span class="k">for</span> i, c <span class="k">in</span> <span class="f">enumerate</span>(chunks)]
+    res = rank.<span class="f">rank</span>(request=de.<span class="f">RankRequest</span>(
+        ranking_config=RANK_CFG, model=<span class="s">"semantic-ranker-fast-004"</span>,
+        query=query, records=records, top_n=<span class="n">8</span>))
+    <span class="k">return</span> [chunks[<span class="f">int</span>(r.id)] <span class="k">for</span> r <span class="k">in</span> res.records]
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">Hybrid search over internal docs</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>Ingests a folder of internal docs into a hybrid Vector Search index</li>
+              <li>Retrieves with both vectors and exposes the RRF <span class="mono">alpha</span> dial</li>
+              <li>Reranks candidates through the Ranking API</li>
+              <li>Returns answers with inline <span class="mono">[n]</span> citations resolving to source title + URL</li>
+              <li>Refuses to answer when the context doesn't support a claim</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>GoogleCloudPlatform/generative-ai</b> · RAG &amp; grounding</a>
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/applied-ai-engineering-samples" target="_blank" rel="noopener"><span class="gh">▤</span> <b>applied-ai-engineering-samples</b> · RAG Playground</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/01-hybrid-rag</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODULE 2 — AGENTS ============ -->
+    <section class="mod" id="m2" data-mod="m2" style="--mc:var(--c2)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">02</span></div>
+        <div>
+          <h3>Agent orchestration: tools, memory, human-in-the-loop</h3>
+          <p class="thesis">Give a model <b>tools</b> it can call, <b>memory</b> that survives the session, and an <b>approval gate</b> a human must clear before anything irreversible runs.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>An agent is a loop: the model reads state, decides whether to answer or call a tool, you run the tool, feed the result back, repeat. Three things turn that loop into a system. <b>Tools</b> are just typed Python functions the model can call. <b>Memory</b> separates short-term session state from long-term facts that persist across conversations. <b>Human-in-the-loop</b> pauses the loop before a sensitive action and waits for a yes.</p>
+          <p>On GCP the <b>Agent Development Kit (ADK)</b> is the code-first surface for this — model-agnostic, Python/Go/Java/TS, with a graph framework for routing a <b>supervisor</b> to specialized <b>sub-agents</b>. <b>Memory Bank</b> holds long-term memory, <b>Sessions</b> hold conversation state, and <b>Agent Engine</b> is the managed runtime that handles autoscaling and long-running execution.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>ADK</b> · LlmAgent + tools + graph</span>
+          <span class="chip"><b>Memory Bank</b> · long-term memory</span>
+          <span class="chip"><b>Sessions</b> · conversation state</span>
+          <span class="chip"><b>Agent Engine</b> · managed runtime</span>
+          <span class="chip"><b>Gemini 2.5 Flash/Pro</b></span>
+          <span class="chip">Model Armor · governance</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">PLAN</div><div class="t">Supervisor</div><div class="d">Reads request + memory, routes to a sub-agent or tool</div></div>
+          <div class="node"><div class="s">RECALL</div><div class="t">Memory Bank</div><div class="d">Pull long-term facts; load session for short-term state</div></div>
+          <div class="node"><div class="s">ACT</div><div class="t">Tools</div><div class="d">Typed functions: search, fetch, write, transact</div></div>
+          <div class="node"><div class="s">GATE</div><div class="t">Approval</div><div class="d">Sensitive tool? pause &amp; surface for human yes/no</div></div>
+          <div class="node"><div class="s">PERSIST</div><div class="t">Write memory</div><div class="d">Summarize outcome back into Memory Bank for next time</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Write tools as functions.</b> Type hints + docstrings become the model's tool schema — the docstring is the prompt the model reads to decide when to call it.</li>
+          <li><b>Define the agent.</b> An <span class="mono">LlmAgent</span> with an instruction, a model, and its tool list.</li>
+          <li><b>Add session + memory.</b> Sessions carry the running conversation; Memory Bank stores durable facts you generate and fetch by user.</li>
+          <li><b>Wrap sensitive tools in a gate.</b> Mark tools like "issue refund" or "send email" as requiring confirmation; the runtime interrupts and waits for approval.</li>
+          <li><b>Compose sub-agents.</b> A supervisor routes to specialists (e.g. a billing agent, a docs agent) over the ADK graph.</li>
+          <li><b>Deploy to Agent Engine.</b> Hand the agent to the managed runtime for autoscaling, sessions, and long-running state.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · tool + HITL gate</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">agent/app.py</span><span class="lang">python</span></div>
+<pre><span class="c"># ADK agent: a safe tool, a gated sensitive tool, plus memory</span>
+<span class="k">from</span> google.adk.agents <span class="k">import</span> LlmAgent
+<span class="k">from</span> google.adk.tools <span class="k">import</span> ToolContext
+
+<span class="k">def</span> <span class="f">lookup_order</span>(order_id: <span class="f">str</span>) -&gt; <span class="f">dict</span>:
+    <span class="s">"""Read-only: fetch an order's status and total."""</span>
+    <span class="k">return</span> db.<span class="f">get_order</span>(order_id)
+
+<span class="k">def</span> <span class="f">issue_refund</span>(order_id: <span class="f">str</span>, amount: <span class="f">float</span>, tool_context: ToolContext) -&gt; <span class="f">dict</span>:
+    <span class="s">"""Irreversible: refund money. Requires human approval first."""</span>
+    <span class="k">if</span> <span class="k">not</span> tool_context.state.<span class="f">get</span>(<span class="s">"approved"</span>):
+        <span class="k">return</span> {<span class="s">"status"</span>: <span class="s">"PENDING_APPROVAL"</span>,        <span class="c"># pause the loop</span>
+                <span class="s">"confirm"</span>: <span class="s">f"Refund ${amount} on {order_id}?"</span>}
+    <span class="k">return</span> payments.<span class="f">refund</span>(order_id, amount)
+
+support = <span class="f">LlmAgent</span>(
+    name=<span class="s">"support"</span>, model=<span class="s">"gemini-2.5-flash"</span>,
+    instruction=<span class="s">"Help customers. Always confirm before issuing refunds."</span>,
+    tools=[lookup_order, issue_refund])      <span class="c"># memory + sessions attach via Agent Engine</span>
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">Orchestration with tools, memory &amp; HITL</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>A supervisor that routes to at least two specialized sub-agents</li>
+              <li>Three+ tools, one of which is irreversible and gated</li>
+              <li>Session state for the live conversation</li>
+              <li>Long-term memory that survives across conversations</li>
+              <li>A blocking approval step a human must clear before the gated tool runs</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/google/adk-samples" target="_blank" rel="noopener"><span class="gh">▤</span> <b>google/adk-samples</b> · reference agents</a>
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>generative-ai</b> · Agent Starter Pack</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/02-agent-orchestrator</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODULE 3 — LLMOPS ============ -->
+    <section class="mod" id="m3" data-mod="m3" style="--mc:var(--c3)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">03</span></div>
+        <div>
+          <h3>LLMOps: a semantic cache that halves the bill</h3>
+          <p class="thesis">Most production traffic is <b>near-duplicate questions</b>. Embed each incoming prompt, look for a semantically similar one you've already answered, and serve the stored answer instead of paying for another generation.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>An exact-match cache almost never hits — "what's your refund policy?" and "how do I get a refund?" are different strings but the same question. A <b>semantic cache</b> stores the <b>embedding</b> of every answered prompt. A new request is embedded and matched by cosine similarity; above a threshold it's a hit and you return the cached response for the price of one cheap embedding call.</p>
+          <p>The two dials that matter: the <b>similarity threshold</b> (too low and you serve wrong answers; too high and you never hit) and the <b>TTL</b> (so stale answers expire). Pair this with Gemini's native <b>context caching</b> for the orthogonal win — caching a large shared prefix (a long system prompt or document) so you stop re-paying input tokens on every call.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>text-embedding-005</b> · prompt vectors</span>
+          <span class="chip"><b>Memorystore for Redis</b> · vector + TTL</span>
+          <span class="chip">AlloyDB / pgvector · alt. store</span>
+          <span class="chip"><b>Gemini context caching</b> · prefix reuse</span>
+          <span class="chip">Cloud Run · the proxy</span>
+          <span class="chip">Cloud Monitoring · hit-rate</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">EMBED</div><div class="t">Vectorize prompt</div><div class="d">One cheap embedding call per request</div></div>
+          <div class="node"><div class="s">SEARCH</div><div class="t">Nearest answer</div><div class="d">Cosine search the cache for a prior prompt</div></div>
+          <div class="node"><div class="s">DECIDE</div><div class="t">Threshold</div><div class="d">sim ≥ τ → HIT (return) · else MISS</div></div>
+          <div class="node"><div class="s">GENERATE</div><div class="t">Gemini (miss only)</div><div class="d">Call the model, store prompt vector + answer + TTL</div></div>
+          <div class="node"><div class="s">METER</div><div class="t">Track savings</div><div class="d">Hit-rate, tokens avoided, $ saved → dashboard</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Wrap the model client.</b> A thin proxy that owns the cache lookup so callers don't change.</li>
+          <li><b>Embed and search.</b> On each request, embed the prompt and run a cosine top-1 against the cache store.</li>
+          <li><b>Set the threshold honestly.</b> Calibrate τ on real traffic — measure wrong-hit rate, not just hit-rate.</li>
+          <li><b>Store on miss.</b> Save <span class="mono">{vector, prompt, response, ttl}</span>; let Redis expire stale entries.</li>
+          <li><b>Add native context caching.</b> For long shared prefixes, register a cached content handle and reference it to cut input-token cost.</li>
+          <li><b>Instrument the win.</b> Emit hit-rate and "tokens avoided × price" so you can prove the bill dropped.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · the cache check</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">llmops/semantic_cache.py</span><span class="lang">python</span></div>
+<pre><span class="c"># serve from cache when a semantically similar prompt was already answered</span>
+<span class="k">def</span> <span class="f">complete</span>(prompt, threshold=<span class="n">0.92</span>):
+    vec = <span class="f">embed</span>(prompt)                         <span class="c"># text-embedding-005</span>
+    hit, score = cache.<span class="f">nearest</span>(vec)            <span class="c"># cosine top-1 from Redis</span>
+    <span class="k">if</span> hit <span class="k">and</span> score &gt;= threshold:
+        metrics.<span class="f">record</span>(<span class="s">"hit"</span>, saved_tokens=hit.tokens)
+        <span class="k">return</span> hit.response, {<span class="s">"cached"</span>: <span class="k">True</span>, <span class="s">"score"</span>: score}
+
+    answer = client.models.<span class="f">generate_content</span>(       <span class="c"># MISS → pay once</span>
+        model=<span class="s">"gemini-2.5-flash"</span>, contents=prompt).text
+    cache.<span class="f">put</span>(vec, prompt, answer, ttl=<span class="n">86400</span>)     <span class="c"># 24h TTL</span>
+    metrics.<span class="f">record</span>(<span class="s">"miss"</span>)
+    <span class="k">return</span> answer, {<span class="s">"cached"</span>: <span class="k">False</span>}
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">Semantic cache that cuts the API bill in half</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>Drop-in proxy in front of Gemini — callers unchanged</li>
+              <li>Embedding-based lookup with a tunable similarity threshold</li>
+              <li>Vector store with TTL eviction (Redis or pgvector)</li>
+              <li>A metrics endpoint reporting hit-rate, tokens avoided, and $ saved</li>
+              <li>A replay script that proves ≥ 50% savings on a real prompt log</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>generative-ai</b> · caching samples</a>
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/vertex-ai-samples" target="_blank" rel="noopener"><span class="gh">▤</span> <b>vertex-ai-samples</b> · embeddings</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/03-semantic-cache</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODULE 4 — EVALS ============ -->
+    <section class="mod" id="m4" data-mod="m4" style="--mc:var(--c4)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">04</span></div>
+        <div>
+          <h3>Evals from real production logs</h3>
+          <p class="thesis">Stop hand-writing test cases. <b>Mine your own traffic</b> — cluster real queries, sample a representative set, auto-generate grading rubrics, and turn it into a versioned eval suite you can run on every change.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>Synthetic test sets test the cases you already imagined. The interesting failures live in production. The move: pull request/response logs, <b>embed and cluster</b> them so you cover the real distribution instead of over-sampling the common path, take a stratified sample, then use a strong model as a <b>generator</b> to write each case's expected answer or grading rubric. A human reviews a slice for sign-off, and the result is a versioned dataset.</p>
+          <p>Then you grade with the <b>Vertex AI Gen AI Evaluation Service</b>: computational metrics (exact-match, ROUGE) where there's a reference, and model-based <b>autorater</b> metrics (an LLM-as-judge scoring helpfulness, groundedness, safety) where there isn't. Run it in CI so quality is a number that moves, not a vibe.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>Cloud Logging → BigQuery</b> · log sink</span>
+          <span class="chip"><b>text-embedding-005</b> · cluster queries</span>
+          <span class="chip"><b>Gemini 3.1 Pro</b> · case generator + autorater</span>
+          <span class="chip"><b>Gen AI Evaluation Service</b></span>
+          <span class="chip">GCS · versioned datasets</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">COLLECT</div><div class="t">Pull logs</div><div class="d">Request/response pairs from BigQuery</div></div>
+          <div class="node"><div class="s">CLUSTER</div><div class="t">Embed + group</div><div class="d">Find the real query distribution, dedupe</div></div>
+          <div class="node"><div class="s">SAMPLE</div><div class="t">Stratify</div><div class="d">Representative + edge cases, not just the common path</div></div>
+          <div class="node"><div class="s">GENERATE</div><div class="t">Rubrics</div><div class="d">LLM writes expected answer / grading criteria per case</div></div>
+          <div class="node"><div class="s">SCORE</div><div class="t">Eval Service</div><div class="d">Autorater + metrics → versioned report in CI</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Sink logs to BigQuery.</b> Route your app's prompt/response logs so you have a queryable history.</li>
+          <li><b>Embed &amp; cluster.</b> Vectorize queries, cluster (k-means / HDBSCAN) to discover intents and their frequencies.</li>
+          <li><b>Stratified sample.</b> Pull N per cluster plus outliers so the suite mirrors production and includes the long tail.</li>
+          <li><b>Generate cases.</b> For each sampled query, have Gemini draft a reference answer and a rubric (groundedness, completeness, tone).</li>
+          <li><b>Human review.</b> Approve/edit a slice; mark each case <span class="mono">verified</span>; version the dataset in GCS.</li>
+          <li><b>Score &amp; gate.</b> Run the Evaluation Service on each candidate model/prompt; fail CI if a metric regresses.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · generate a graded case</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">evals/generate_cases.py</span><span class="lang">python</span></div>
+<pre><span class="c"># turn one real logged query into a graded eval case</span>
+RUBRIC = <span class="s">"""From this real user query + the answer we served, produce JSON:
+{"input": str, "reference": str, "rubric": [str], "tags": [str]}
+The reference is the ideal grounded answer; rubric = pass/fail checks."""</span>
+
+<span class="k">def</span> <span class="f">make_case</span>(logged_query, served_answer):
+    resp = client.models.<span class="f">generate_content</span>(
+        model=<span class="s">"gemini-3.1-pro"</span>,
+        contents=<span class="s">f"{RUBRIC}\n\nQUERY: {logged_query}\nSERVED: {served_answer}"</span>,
+        config=types.<span class="f">GenerateContentConfig</span>(
+            response_mime_type=<span class="s">"application/json"</span>, temperature=<span class="n">0.2</span>))
+    <span class="k">return</span> json.<span class="f">loads</span>(resp.text)        <span class="c"># → append to versioned eval set</span>
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">Test-set generator from production logs</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>Reads logged query/response pairs from BigQuery (or a JSONL export)</li>
+              <li>Clusters queries and samples a representative + edge-case set</li>
+              <li>Generates a reference answer and rubric per case with Gemini</li>
+              <li>Emits a versioned eval dataset + a human-review queue</li>
+              <li>Runs the Evaluation Service and prints a scored report</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/applied-ai-engineering-samples" target="_blank" rel="noopener"><span class="gh">▤</span> <b>applied-ai-engineering-samples</b> · LLM eval</a>
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>generative-ai</b> · evaluation</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/04-eval-generator</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODULE 5 — FINE-TUNING ============ -->
+    <section class="mod" id="m5" data-mod="m5" style="--mc:var(--c5)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">05</span></div>
+        <div>
+          <h3>LoRA fine-tuning: base model → benchmark</h3>
+          <p class="thesis">When prompting can't get the model to match your domain's <b>format, terminology, or style</b>, train <b>LoRA adapters</b> on a few hundred good examples and prove the win against the base model on a held-out set.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>Vertex's supervised fine-tuning doesn't update the whole model — it uses <b>LoRA (PEFT)</b>: the base weights freeze, and small low-rank adapter matrices are trained and injected into the transformer layers. You save megabytes of adapters, not a fresh copy of the model, and a single base can serve many adapters. The one dial that matters most is <b>adapter_size</b> (the LoRA rank, 1–8): bigger learns more but risks overfitting.</p>
+          <p>The pipeline is the point: curate a clean JSONL dataset, launch an SFT job pinned to a base like <span class="mono">gemini-2.5-flash</span>, deploy the resulting adapter to an endpoint, and then — critically — <b>benchmark base vs. tuned</b> on data the model never saw. If you want downloadable weights, run LoRA on open-weight <span class="mono">gemma-4</span> via a custom training job instead.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>Vertex SFT</b> · LoRA tuning (adapter_size)</span>
+          <span class="chip"><b>gemini-2.5-flash</b> · base</span>
+          <span class="chip"><b>gemma-4</b> · open-weight alt.</span>
+          <span class="chip">GCS · JSONL train/val</span>
+          <span class="chip">Model Registry · adapters</span>
+          <span class="chip"><b>Eval Service</b> · base vs tuned</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">CURATE</div><div class="t">JSONL dataset</div><div class="d">Clean input/output pairs, train + held-out val</div></div>
+          <div class="node"><div class="s">TUNE</div><div class="t">SFT (LoRA)</div><div class="d">Launch job, pin base, set adapter_size + epochs</div></div>
+          <div class="node"><div class="s">REGISTER</div><div class="t">Adapters</div><div class="d">Saved to Model Registry, deployed to an endpoint</div></div>
+          <div class="node"><div class="s">BENCHMARK</div><div class="t">Base vs tuned</div><div class="d">Score both on held-out val with the Eval Service</div></div>
+          <div class="node"><div class="s">DECIDE</div><div class="t">Ship or iterate</div><div class="d">Promote if the lift clears your bar; else adjust data</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Curate, don't dump.</b> A few hundred high-quality, consistent examples beat thousands of noisy ones. Hold out a real validation slice.</li>
+          <li><b>Format JSONL.</b> One example per line as input/output (or messages); upload train + val to GCS.</li>
+          <li><b>Launch SFT.</b> Pin <span class="mono">source_model</span>, set <span class="mono">adapter_size</span> and <span class="mono">epochs</span>; the job trains and registers the adapter.</li>
+          <li><b>Deploy.</b> The tuned model becomes an endpoint resource you call exactly like the base.</li>
+          <li><b>Benchmark honestly.</b> Run base and tuned over the held-out set with the same metrics; report the delta.</li>
+          <li><b>Iterate on data.</b> Most gains come from fixing the dataset, not cranking the rank.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · launch SFT &amp; compare</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">tuning/run_lora.py</span><span class="lang">python</span></div>
+<pre><span class="c"># supervised LoRA tuning on Vertex, then benchmark vs the base</span>
+<span class="k">from</span> vertexai.tuning <span class="k">import</span> sft
+
+job = sft.<span class="f">train</span>(
+    source_model=<span class="s">"gemini-2.5-flash"</span>,
+    train_dataset=<span class="s">"gs://my-bucket/train.jsonl"</span>,
+    validation_dataset=<span class="s">"gs://my-bucket/val.jsonl"</span>,
+    epochs=<span class="n">3</span>, adapter_size=<span class="n">4</span>,          <span class="c"># LoRA rank</span>
+    tuned_model_display_name=<span class="s">"support-summarizer-v1"</span>)
+job.<span class="f">refresh</span>()                            <span class="c"># poll until done</span>
+
+tuned = job.tuned_model_endpoint_name        <span class="c"># deployed automatically</span>
+<span class="k">for</span> model <span class="k">in</span> [<span class="s">"gemini-2.5-flash"</span>, tuned]:    <span class="c"># base vs tuned, same metrics</span>
+    score = <span class="f">evaluate</span>(model, held_out)
+    <span class="f">print</span>(model, score)                    <span class="c"># report the lift</span>
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">LoRA pipeline, base → benchmark</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>Builds a clean domain JSONL dataset with a held-out split</li>
+              <li>Launches a Vertex SFT (LoRA) job with configurable rank &amp; epochs</li>
+              <li>Deploys the tuned adapter to a callable endpoint</li>
+              <li>Runs base vs. tuned on the held-out set, same metrics</li>
+              <li>Prints a benchmark table with the measured lift</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/vertex-ai-samples" target="_blank" rel="noopener"><span class="gh">▤</span> <b>vertex-ai-samples</b> · tuning notebooks</a>
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>generative-ai</b> · Gemini tuning</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/05-lora-pipeline</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MODULE 6 — GUARDRAILS ============ -->
+    <section class="mod" id="m6" data-mod="m6" style="--mc:var(--c6)">
+      <div class="mod-top">
+        <div class="mod-code">PATTERN <span class="pat">06</span></div>
+        <div>
+          <h3>Guarded text-to-SQL</h3>
+          <p class="thesis">Let users ask questions in English and get SQL back — but <b>never let a generated query mutate or destroy data</b>. Validate the query's structure, not just its words, before a single byte runs.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">The idea</div>
+        <div class="prose">
+          <p>A model that writes SQL will, sooner or later, write <span class="mono">DELETE</span> or <span class="mono">DROP</span> — through a clever prompt, a misunderstanding, or an injected instruction. You cannot prompt your way to safety; you need <b>defense in depth</b>. Generate SQL grounded in the real schema and constrained to <span class="mono">SELECT</span>. Then <b>parse the generated SQL into an AST</b> and reject anything that isn't a read: no DML/DDL, no multiple statements, only allow-listed tables, a mandatory <span class="mono">LIMIT</span>.</p>
+          <p>Even a valid-looking SELECT runs under two more guards: a <b>BigQuery dry-run</b> that validates and estimates cost without executing, and a <b>read-only service account</b> that physically lacks write permission. Generation is a suggestion; the parser and the IAM role are the law.</p>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">GCP stack</div>
+        <div class="chips">
+          <span class="chip"><b>Gemini 2.5 Pro</b> · schema-grounded SQL</span>
+          <span class="chip"><b>sqlglot</b> · AST parse + validate</span>
+          <span class="chip"><b>BigQuery dry-run</b> · pre-flight</span>
+          <span class="chip"><b>Read-only SA</b> · IAM hard stop</span>
+          <span class="chip">Model Armor · I/O filtering</span>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Architecture</div>
+        <div class="flow">
+          <div class="node"><div class="s">GENERATE</div><div class="t">NL → SQL</div><div class="d">Gemini with the real schema, constrained to SELECT</div></div>
+          <div class="node"><div class="s">PARSE</div><div class="t">AST validate</div><div class="d">sqlglot: reject DML/DDL, multi-statement, comments</div></div>
+          <div class="node"><div class="s">POLICY</div><div class="t">Allow-list</div><div class="d">Only permitted tables/cols · require LIMIT</div></div>
+          <div class="node"><div class="s">DRY-RUN</div><div class="t">Pre-flight</div><div class="d">BigQuery validates + prices with zero bytes billed</div></div>
+          <div class="node"><div class="s">EXECUTE</div><div class="t">Read-only SA</div><div class="d">Run under creds that cannot write · return rows + report</div></div>
+        </div>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Build path</div>
+        <ol class="build">
+          <li><b>Ground the prompt in schema.</b> Pass table/column definitions; instruct read-only SELECT and a forced LIMIT.</li>
+          <li><b>Parse to an AST.</b> Use <span class="mono">sqlglot</span> — string matching for "DROP" is trivially bypassed; an AST is not.</li>
+          <li><b>Reject by structure.</b> Block anything that isn't a single SELECT: no INSERT/UPDATE/DELETE/DROP/ALTER/TRUNCATE/MERGE, no stacked statements.</li>
+          <li><b>Enforce policy.</b> Allow-list tables and columns; require a LIMIT; cap scanned bytes.</li>
+          <li><b>Dry-run.</b> Ask BigQuery to validate and estimate before executing for real.</li>
+          <li><b>Execute least-privilege.</b> Run under a service account with read-only access so a bug can't become a breach.</li>
+        </ol>
+      </div>
+
+      <div class="specrow">
+        <div class="spec-k">Reference code · the structural gate</div>
+        <div class="code">
+          <div class="code-bar"><span class="fn">guardrails/validate_sql.py</span><span class="lang">python</span></div>
+<pre><span class="c"># the query is guilty until the AST proves it's a harmless read</span>
+<span class="k">import</span> sqlglot
+<span class="k">from</span> sqlglot <span class="k">import</span> exp
+
+BLOCKED = (exp.Insert, exp.Update, exp.Delete, exp.Drop,
+           exp.Alter, exp.Create, exp.Command)   <span class="c"># TRUNCATE, etc.</span>
+
+<span class="k">def</span> <span class="f">assert_safe</span>(sql, allowed_tables):
+    trees = sqlglot.<span class="f">parse</span>(sql, read=<span class="s">"bigquery"</span>)
+    <span class="k">if</span> <span class="f">len</span>(trees) != <span class="n">1</span>:
+        <span class="k">raise</span> <span class="f">Unsafe</span>(<span class="s">"multiple statements"</span>)     <span class="c"># no stacking</span>
+    tree = trees[<span class="n">0</span>]
+    <span class="k">if</span> <span class="k">not</span> <span class="f">isinstance</span>(tree, exp.Select):
+        <span class="k">raise</span> <span class="f">Unsafe</span>(<span class="s">"only SELECT is permitted"</span>)
+    <span class="k">if</span> <span class="f">any</span>(tree.<span class="f">find</span>(b) <span class="k">for</span> b <span class="k">in</span> BLOCKED):
+        <span class="k">raise</span> <span class="f">Unsafe</span>(<span class="s">"destructive operation"</span>)
+    <span class="k">for</span> t <span class="k">in</span> tree.<span class="f">find_all</span>(exp.Table):
+        <span class="k">if</span> t.name <span class="k">not</span> <span class="k">in</span> allowed_tables:
+            <span class="k">raise</span> <span class="f">Unsafe</span>(<span class="s">f"table not allow-listed: {t.name}"</span>)
+    <span class="k">if</span> <span class="k">not</span> tree.<span class="f">find</span>(exp.Limit):
+        sql += <span class="s">" LIMIT 1000"</span>                  <span class="c"># force a ceiling</span>
+    <span class="k">return</span> sql                              <span class="c"># then: BQ dry-run, then read-only execute</span>
+</pre>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:26px">
+        <div class="brief">
+          <div class="brief-top"><div class="bt-k">Project brief</div><div class="bt-t">Text-to-SQL that blocks destructive queries</div></div>
+          <div class="brief-body">
+            <ul class="ac">
+              <li>Generates schema-grounded SQL from a natural-language question</li>
+              <li>Parses to an AST and rejects all non-SELECT operations</li>
+              <li>Enforces a table/column allow-list and a mandatory LIMIT</li>
+              <li>Dry-runs against BigQuery before any real execution</li>
+              <li>Executes under read-only credentials and returns a safety report</li>
+              <li>Ships with an attack-suite of injection attempts that all get blocked</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="spec-k">Repos &amp; starter</div>
+          <div class="repos">
+            <a class="repo" href="https://github.com/GoogleCloudPlatform/generative-ai" target="_blank" rel="noopener"><span class="gh">▤</span> <b>generative-ai</b> · BigQuery + Gemini</a>
+            <a class="repo" href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener"><span class="gh">▤</span> <b>tobymao/sqlglot</b> · SQL parser</a>
+            <span class="repo starter"><span class="gh">◆</span> Starter in this bundle: <b>projects/06-guarded-text2sql</b></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<!-- ===== usage ===== -->
+<section class="section" id="ship">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">From this bundle to your repos</span>
+      <h2>Run a starter, then make it yours</h2>
+      <p>Each pattern ships with a runnable starter under <span class="mono">projects/</span>. They're built to read top-to-bottom: a README that mirrors this manual, the core module, and a runnable entry point. Treat each as the seed of its own public repo.</p>
+    </div>
+    <div class="use-grid">
+      <div class="use"><div class="n">step 01</div><h4>Clone &amp; configure</h4><p>Open a project folder, copy <code>.env.example</code> to <code>.env</code>, and set your <code>GOOGLE_CLOUD_PROJECT</code> and region.</p></div>
+      <div class="use"><div class="n">step 02</div><h4>Install &amp; run</h4><p><code>pip install -r requirements.txt</code> then run the entry point. Each README lists the exact command and what success looks like.</p></div>
+      <div class="use"><div class="n">step 03</div><h4>Publish</h4><p><code>git init</code>, push to a fresh GitHub repo, and you have a public project per pattern — exactly the portfolio this manual set out to build.</p></div>
+    </div>
+    <div class="callout" style="border-left-color:var(--c2);background:linear-gradient(90deg,rgba(157,140,255,.05),transparent)"><b>The linked GitHub repos are real, official Google sources</b> — generative-ai, vertex-ai-samples, applied-ai-engineering-samples, and adk-samples — kept current by Google Cloud. Use them as the deep reference; use the bundled starters as your own launch point.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="l"><b>LLM Systems Field Manual.</b> Built for the Gemini Enterprise Agent Platform (Vertex AI) as of June 2026. Model names, service names, and APIs move fast on Google Cloud — verify specifics against the live docs before you ship to production. This is an independent learning resource, not an official Google product.</div>
+      <a class="btn" href="#" >▲ Back to top</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // scroll-spy: light the active pattern in the rail + top nav
+  (function(){
+    var mods = Array.prototype.slice.call(document.querySelectorAll('.mod[data-mod]'));
+    var rail = {};
+    document.querySelectorAll('.rail a[data-rail]').forEach(function(a){ rail[a.getAttribute('data-rail')] = a; });
+    if(!('IntersectionObserver' in window) || mods.length===0) return;
+    var active = null;
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          var id = e.target.getAttribute('data-mod');
+          if(active && rail[active]) rail[active].classList.remove('on');
+          if(rail[id]) rail[id].classList.add('on');
+          active = id;
+        }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    mods.forEach(function(m){ io.observe(m); });
+  })();
+</script>
+</body>
+</html>
